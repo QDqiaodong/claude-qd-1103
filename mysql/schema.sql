@@ -16,6 +16,7 @@ USE milktea_bar;
 
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS recipe_topping;
+DROP TABLE IF EXISTS cup_order_deduction;
 DROP TABLE IF EXISTS cup_order_item;
 DROP TABLE IF EXISTS cup_order;
 DROP TABLE IF EXISTS recipe;
@@ -64,21 +65,40 @@ CREATE TABLE member (
 
 -- ---------------- 出杯记录 ----------------
 CREATE TABLE cup_order (
-    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
-    member_id     BIGINT     COMMENT '会员 id（散客为空）',
-    pay_type      VARCHAR(16) NOT NULL COMMENT '微信 / 支付宝 / 现金',
-    total         DECIMAL(10,2) NOT NULL COMMENT '金额合计（自动汇总）',
-    status        VARCHAR(16) NOT NULL COMMENT '已出杯 / 已退款',
-    points_earned INT         COMMENT '本次为会员带来的积分（退款回退用）',
-    created_at    DATETIME    COMMENT '创建时间'
+    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    member_id      BIGINT     COMMENT '会员 id（散客为空）',
+    pay_type       VARCHAR(16) NOT NULL COMMENT '微信 / 支付宝 / 现金',
+    total          DECIMAL(10,2) NOT NULL COMMENT '金额合计（自动汇总）',
+    status         VARCHAR(16) NOT NULL COMMENT '已出杯 / 已退款',
+    points_earned  INT         COMMENT '本次为会员带来的积分（退款回退用）',
+    stock_result   VARCHAR(16) NOT NULL DEFAULT '未扣减' COMMENT '原料扣减结果：已扣减 / 未扣减（历史旧单）',
+    restore_result VARCHAR(16) COMMENT '退款原料回补结果：已回补 / 未回补（旧单无快照）；未退款为空',
+    remark         VARCHAR(255) COMMENT '履约备注：如旧单无快照、原料失效等',
+    created_at     DATETIME    COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE cup_order_item (
     id         BIGINT AUTO_INCREMENT PRIMARY KEY,
     order_id   BIGINT NOT NULL COMMENT '所属出杯单',
     recipe_id  BIGINT NOT NULL COMMENT '配方 id',
-    qty        INT    NOT NULL COMMENT '杯数',
+    qty        INT    NOT NULL COMMENT '杯数（同一配方重复明细已合并）',
     CONSTRAINT fk_item_order FOREIGN KEY (order_id) REFERENCES cup_order (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------- 出杯原料扣减快照（履约台账） ----------------
+-- 每笔出杯按「合并后的原料需求」落一行快照；退款严格按本快照回补，
+-- 之后配方 / 原料如何编辑都不改变历史消耗与回补口径。
+CREATE TABLE cup_order_deduction (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id        BIGINT      NOT NULL COMMENT '所属出杯单',
+    ingredient_id   BIGINT      COMMENT '原料 id（回补锚点；原料若被物理删除则为空）',
+    ingredient_name VARCHAR(64) NOT NULL COMMENT '原料名快照',
+    category        VARCHAR(16) NOT NULL COMMENT '类别快照：茶底 / 奶 / 小料 / 糖浆',
+    unit            VARCHAR(16) NOT NULL COMMENT '单位快照',
+    qty             INT         NOT NULL COMMENT '本次实际扣减数量（跨配方合并后）',
+    restored        TINYINT     NOT NULL DEFAULT 0 COMMENT '是否已随退款回补：1 是 / 0 否',
+    created_at      DATETIME    COMMENT '创建时间',
+    KEY idx_deduction_order (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================================
@@ -119,12 +139,19 @@ INSERT IGNORE INTO member (phone, name, points, level, created_at) VALUES
 ('13800005555', '老王', 1800, '银卡', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 18 DAY),
 ('13800006666', '婷婷', 50,   '普通', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 15 DAY);
 
-INSERT IGNORE INTO cup_order (member_id, pay_type, total, status, points_earned, created_at) VALUES
-(1, '微信',   24.00, '已出杯', 24, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
-(2, '支付宝', 11.00, '已出杯', 11, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 DAY),
-(3, '现金',   28.00, '已出杯', 28, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 8 DAY),
-(1, '微信',   36.00, '已退款', 36, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 7 DAY),
-(NULL, '现金', 12.00, '已出杯', 0,  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 6 DAY);
+INSERT IGNORE INTO cup_order (id, member_id, pay_type, total, status, points_earned, created_at) VALUES
+(1, 1, '微信',   24.00, '已出杯', 24, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 DAY),
+(2, 2, '支付宝', 11.00, '已出杯', 11, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 DAY),
+(3, 3, '现金',   28.00, '已出杯', 28, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 8 DAY),
+(4, 1, '微信',   36.00, '已退款', 36, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 7 DAY),
+(5, NULL, '现金', 12.00, '已出杯', 0,  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 6 DAY);
+
+-- 历史旧单：功能上线前不存在扣减快照，按现有规则仍可退款，但不凭空回补库存。
+UPDATE cup_order
+SET stock_result = '未扣减',
+    restore_result = CASE WHEN status = '已退款' THEN '未回补' ELSE restore_result END,
+    remark = '历史旧单：无原料扣减快照，退款仅回退积分、不回补库存'
+WHERE id IN (1, 2, 3, 4, 5);
 
 INSERT IGNORE INTO cup_order_item (order_id, recipe_id, qty) VALUES
 (1, 1, 2),
