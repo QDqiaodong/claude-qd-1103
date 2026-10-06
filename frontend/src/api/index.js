@@ -42,6 +42,8 @@ export default {
 
   // ---------------- 出杯记录 ----------------
   listCupOrders: (status) => call(http.get('/cup-orders', params(status ? { status } : {}))),
+  listCupOrderFailures: () => call(http.get('/cup-orders/failures')),
+  previewCupOrder: (d) => call(http.post('/cup-orders/preview', d)),
   createCupOrder: (d) => call(http.post('/cup-orders', d)),
   refundCupOrder: (id) => call(http.post(`/cup-orders/${id}/refund`))
 }

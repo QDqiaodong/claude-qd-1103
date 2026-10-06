@@ -15,6 +15,8 @@ CREATE DATABASE IF NOT EXISTS milktea_bar
 USE milktea_bar;
 
 SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS cup_order_stock_snapshot;
+DROP TABLE IF EXISTS cup_order_failure;
 DROP TABLE IF EXISTS recipe_topping;
 DROP TABLE IF EXISTS cup_order_item;
 DROP TABLE IF EXISTS cup_order;
@@ -79,6 +81,33 @@ CREATE TABLE cup_order_item (
     recipe_id  BIGINT NOT NULL COMMENT '配方 id',
     qty        INT    NOT NULL COMMENT '杯数',
     CONSTRAINT fk_item_order FOREIGN KEY (order_id) REFERENCES cup_order (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------- 原料扣减快照 ----------------
+-- 新订单出杯时按当次配方实际用量保存，之后配方/原料如何编辑都不改变历史消耗；
+-- 退款时严格按快照逐行回补，refund_qty 为 NULL 表示尚未回补。
+CREATE TABLE cup_order_stock_snapshot (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id        BIGINT      NOT NULL COMMENT '所属出杯单',
+    ingredient_id   BIGINT      NOT NULL COMMENT '原料 id（可追溯）',
+    ingredient_name VARCHAR(64) NOT NULL COMMENT '下单时原料名（快照）',
+    unit            VARCHAR(16) NOT NULL COMMENT '下单时单位（快照）',
+    used_qty        INT         NOT NULL COMMENT '本次实际扣减量',
+    refund_qty      INT         COMMENT '退款已回补量（未退款为 NULL）',
+    CONSTRAINT fk_snapshot_order FOREIGN KEY (order_id) REFERENCES cup_order (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ---------------- 出杯失败记录 ----------------
+-- 任一原料不足/停用/配方失效即整单不落 cup_order，此处只留审计记录，
+-- 不扣库存、不加积分，供出杯记录页查看失败原因。
+CREATE TABLE cup_order_failure (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    member_id     BIGINT       COMMENT '会员 id（散客为空）',
+    member_label  VARCHAR(64)  COMMENT '下单时会员描述（快照）',
+    pay_type      VARCHAR(16)  NOT NULL COMMENT '支付方式',
+    request_items VARCHAR(255) NOT NULL COMMENT '请求的配方与杯数',
+    reason        VARCHAR(500) NOT NULL COMMENT '失败原因',
+    created_at    DATETIME     COMMENT '创建时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================================

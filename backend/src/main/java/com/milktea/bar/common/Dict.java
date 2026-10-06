@@ -36,6 +36,9 @@ public final class Dict {
     /** 配方售价下限：必须大于该值（0.01 元） */
     public static final BigDecimal RECIPE_MIN_PRICE = new BigDecimal("0.01");
 
+    /** 每出一杯固定消耗的茶底量（茶底用量未在配方中配置，按此统一口径扣减） */
+    public static final int BASE_TEA_PER_CUP = 10;
+
     // ---------------- 出杯记录 cup_order ----------------
     /** 支付方式 */
     public static final List<String> PAY_TYPES = List.of("微信", "支付宝", "现金");

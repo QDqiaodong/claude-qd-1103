@@ -22,6 +22,11 @@ spring:
       hibernate:
         jdbc:
           time_zone: Asia/Shanghai
+        # 悲观行锁等待上限（秒）：并发争用后到事务快速失败而不是长时间挂起
+        jakarta:
+          persistence:
+            lock:
+              timeout: 5000
   jackson:
     time-zone: Asia/Shanghai
     serialization:
